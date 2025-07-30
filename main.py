@@ -19,6 +19,7 @@ When a user asks a question or makes a request, make a function call plan. You c
 - Write or overwrite files
 
 All paths you provide should be relative to the working directory. You do not need to specify the working directory in your function calls as it is automatically injected for security reasons.
+Complete all necessary function calls before providing your final answer. Do not explain your plan - just execute it.
 """
 
 
@@ -59,9 +60,18 @@ def main():
         types.Content(role="user", parts=[types.Part(text=user_prompt)]),
     ]
 
-    generate_content(client, messages, verbose)
-
-
+    for i in range(20):
+        try:
+            response, messages = generate_content(client, messages, verbose)
+            final_text = response.text.strip() if response.text else ""
+            if final_text and len(final_text) > 2:  # length > 2 avoids things like '.' or '\n'
+                print("Final response:")
+                print(final_text)
+                break
+        except Exception as e:
+            print(f"Error:{e}")
+            break
+    
 def generate_content(client, messages, verbose):
     response = client.models.generate_content(
         model="gemini-2.0-flash-001",
@@ -71,18 +81,19 @@ def generate_content(client, messages, verbose):
     if verbose:
         print("Prompt tokens:", response.usage_metadata.prompt_token_count)
         print("Response tokens:", response.usage_metadata.candidates_token_count)
-    print("Response:")
+    # print("Response:")
+    for candidate in response.candidates:
+        messages.append(candidate.content)
     if response.function_calls:
         for call in response.function_calls:
             result = call_function(call, verbose)
+            func_response = types.Content(role="model", parts=[types.Part(text=f"Tool response: \n{result.parts[0].function_response.response['result']}")])
+            messages.append(func_response)  # This appends the Content object directly
             if not result.parts[0].function_response.response:
                 raise Exception("This is a fatal error")
             if verbose:
                 print(f"-> {result.parts[0].function_response.response}")
-            
-    else:
-        print(response.text)
-
+    return response, messages
 
 if __name__ == "__main__":
     main()
